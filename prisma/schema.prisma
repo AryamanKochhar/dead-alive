@@ -1,0 +1,64 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+// Get a free hosted Postgres database in seconds: `npx create-db`
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+model HistoricalFigure {
+  id                String     @id @default(uuid())
+  name              String
+  birthYear         Int
+  deathYear         Int?       // Null if still alive
+  birthPlace        String?
+  deathPlace        String?
+  shortDescription  String
+  imageUrl          String?
+  difficulty        String     // 'EASY', 'MEDIUM', 'HARD'
+  tags              String[]
+  questions         Question[]
+}
+
+model HistoricalEvent {
+  id                String     @id @default(uuid())
+  title             String
+  eventYear         Int
+  category          String
+  shortDescription  String
+  imageUrl          String?
+  questions         Question[]
+}
+
+model Question {
+  id                String           @id @default(uuid())
+  figureId          String
+  eventId           String
+  figure            HistoricalFigure @relation(fields: [figureId], references: [id])
+  event             HistoricalEvent  @relation(fields: [eventId], references: [id])
+  correctAnswer     Boolean
+}
+
+model User {
+  id                String        @id @default(uuid())
+  username          String        @unique
+  xp                Int           @default(0)
+  streak            Int           @default(0)
+  highestStreak     Int           @default(0)
+  createdAt         DateTime      @default(now())
+  sessions          GameSession[]
+}
+
+model GameSession {
+  id                String   @id @default(uuid())
+  userId            String
+  user              User     @relation(fields: [userId], references: [id])
+  score             Int
+  mode              String   // 'CLASSIC', 'TIMED', 'SURVIVAL'
+  createdAt         DateTime @default(now())
+}
