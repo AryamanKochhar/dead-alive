@@ -4,22 +4,36 @@ import { useState, useEffect } from 'react'
 import { motion, AnimatePresence } from 'framer-motion'
 import { Button } from '@/components/ui/button'
 import { Card } from '@/components/ui/card'
+import { Input } from '@/components/ui/input'
 import { fetchNextQuestion } from '@/app/actions'
+import { submitScore } from '@/app/actions/leaderboard'
 import { useGameStore } from '@/lib/store'
-import { Loader2, Heart, Flame, Trophy, Clock } from 'lucide-react'
+import { Loader2, Heart, Flame, Trophy, Clock, Send } from 'lucide-react'
 import { toast } from 'sonner'
 import Timeline from './Timeline'
+import { useRouter } from 'next/navigation'
 
 type GameMode = 'CLASSIC' | 'SURVIVAL' | 'TIMED'
 
 export default function GameBoard({ mode }: { mode: GameMode }) {
+  const router = useRouter()
   const [question, setQuestion] = useState<any>(null)
   const [loading, setLoading] = useState(true)
   const [answering, setAnswering] = useState(false)
   const [result, setResult] = useState<'CORRECT' | 'WRONG' | null>(null)
   const [timeLeft, setTimeLeft] = useState(60)
+  
+  const [isSubmitting, setIsSubmitting] = useState(false)
 
-  const { score, streak, lives, incrementScore, incrementStreak, resetStreak, loseLife, resetGame } = useGameStore()
+  const { score, streak, lives, highestStreak, username, setUsername, incrementScore, incrementStreak, resetStreak, loseLife, resetGame, playSound, musicEnabled } = useGameStore()
+
+  // Start BGM on first load if enabled
+  useEffect(() => {
+    if (musicEnabled) {
+      const bgm = document.getElementById('bgm-audio') as HTMLAudioElement;
+      if (bgm) bgm.play().catch(e => console.log('Autoplay prevented', e));
+    }
+  }, [musicEnabled])
 
   const loadQuestion = async () => {
     setLoading(true)
@@ -46,6 +60,18 @@ export default function GameBoard({ mode }: { mode: GameMode }) {
     }
   }, [mode, timeLeft, loading, answering])
 
+  const isGameOver = 
+    (mode === 'SURVIVAL' && lives === 0) || 
+    (mode === 'CLASSIC' && result === 'WRONG') ||
+    (mode === 'TIMED' && timeLeft <= 0)
+
+  // Play Game Over sound once
+  useEffect(() => {
+    if (isGameOver && !answering) {
+      playSound('GAMEOVER')
+    }
+  }, [isGameOver, answering, playSound])
+
   const handleAnswer = async (guess: boolean) => {
     if (answering || !question) return
     setAnswering(true)
@@ -54,10 +80,12 @@ export default function GameBoard({ mode }: { mode: GameMode }) {
     
     if (isCorrect) {
       setResult('CORRECT')
+      playSound('CORRECT')
       incrementScore(100 + streak * 10)
       incrementStreak()
     } else {
       setResult('WRONG')
+      playSound('WRONG')
       resetStreak()
       if (mode === 'SURVIVAL') loseLife()
     }
@@ -76,6 +104,22 @@ export default function GameBoard({ mode }: { mode: GameMode }) {
     }, 3000)
   }
 
+  const handleSubmitScore = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!username.trim() || score === 0) return
+    
+    setIsSubmitting(true)
+    const res = await submitScore(username, score, mode, highestStreak)
+    setIsSubmitting(false)
+    
+    if (res.success) {
+      toast.success("Score submitted!")
+      router.push(`/leaderboard?mode=${mode}`)
+    } else {
+      toast.error("Failed to submit score")
+    }
+  }
+
   if (loading && !question) {
     return (
       <div className="flex flex-col items-center justify-center min-h-[60vh]">
@@ -84,23 +128,43 @@ export default function GameBoard({ mode }: { mode: GameMode }) {
     )
   }
 
-  const isGameOver = 
-    (mode === 'SURVIVAL' && lives === 0) || 
-    (mode === 'CLASSIC' && result === 'WRONG') ||
-    (mode === 'TIMED' && timeLeft === 0)
-
   if (isGameOver && !answering) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-6">
-        <h2 className="text-5xl font-black text-red-500">GAME OVER</h2>
-        <div className="space-y-2">
-          <p className="text-2xl text-neutral-300">Final Score: <span className="font-bold text-white">{score}</span></p>
-          <p className="text-xl text-neutral-400">Highest Streak: <span className="font-bold text-orange-400">{streak}</span></p>
+      <motion.div 
+        initial={{ opacity: 0, scale: 0.9 }}
+        animate={{ opacity: 1, scale: 1 }}
+        className="flex flex-col items-center justify-center min-h-[60vh] text-center space-y-8"
+      >
+        <div className="space-y-4">
+          <h2 className="text-6xl font-black text-transparent bg-clip-text bg-gradient-to-r from-red-500 to-red-700">GAME OVER</h2>
+          <div className="p-6 rounded-2xl bg-neutral-900/50 border border-neutral-800 backdrop-blur-md">
+            <p className="text-2xl text-neutral-300">Final Score: <span className="font-bold text-white text-4xl">{score}</span> XP</p>
+            <p className="text-xl text-neutral-400 mt-2">Highest Streak: <span className="font-bold text-orange-400">{streak}</span> 🔥</p>
+          </div>
         </div>
-        <Button onClick={() => { resetGame(mode); loadQuestion(); }} className="bg-red-600 hover:bg-red-700 h-12 px-8 rounded-full text-lg font-bold">
+
+        {score > 0 && (
+          <form onSubmit={handleSubmitScore} className="flex w-full max-w-sm items-center space-x-2">
+            <Input 
+              type="text" 
+              placeholder="Enter Username to save score..." 
+              value={username}
+              onChange={(e) => setUsername(e.target.value)}
+              className="h-12 bg-neutral-900 border-neutral-700 text-white placeholder:text-neutral-500"
+              required
+              maxLength={20}
+              disabled={isSubmitting}
+            />
+            <Button type="submit" disabled={isSubmitting || !username.trim()} className="h-12 px-6 bg-yellow-600 hover:bg-yellow-700 text-white font-bold">
+              {isSubmitting ? <Loader2 className="w-5 h-5 animate-spin" /> : <Send className="w-5 h-5" />}
+            </Button>
+          </form>
+        )}
+
+        <Button onClick={() => { resetGame(mode); loadQuestion(); }} className="bg-neutral-800 hover:bg-neutral-700 border border-neutral-700 h-12 px-8 rounded-full text-lg font-bold text-white">
           Play Again
         </Button>
-      </div>
+      </motion.div>
     )
   }
 
